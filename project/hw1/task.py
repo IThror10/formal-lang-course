@@ -15,5 +15,4 @@ def getGraphInfoByName(graphName: str):
 
 def createBiSycleGraph(cSize1: int, cSize2: int, labels: set, path: str):
     graph = labeled_two_cycles_graph(n=cSize1, m=cSize2, labels=labels)
-    print(path)
     write_dot(graph, path)

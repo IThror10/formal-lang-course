@@ -1,22 +1,31 @@
 from scipy.sparse import dok_matrix, kron
-from pyformlang.finite_automaton import DeterministicFiniteAutomaton as DFA,\
-    NondeterministicFiniteAutomaton as NDFA, State
+from pyformlang.finite_automaton import (
+    DeterministicFiniteAutomaton as DFA,
+    NondeterministicFiniteAutomaton as NDFA,
+    State,
+)
 
 
 class FiniteAutomaton:
-    def __init__(self, dfa = None):
+    def __init__(self, dfa=None):
         if not isinstance(dfa, DFA) and not isinstance(dfa, NDFA):
             return
-        
+
         states = dfa.to_dict()
         self.mapping = {v: i for i, v in enumerate(dfa.states)}
         self.sparse = dict()
 
         for label in dfa.symbols:
-            self.sparse[label] = dok_matrix((len(dfa.states), len(dfa.states)), dtype=bool)
+            self.sparse[label] = dok_matrix(
+                (len(dfa.states), len(dfa.states)), dtype=bool
+            )
             for u, edges in states.items():
                 if label in edges:
-                    for v in edges[label] if isinstance(edges[label], set) else {edges[label]}:
+                    for v in (
+                        edges[label]
+                        if isinstance(edges[label], set)
+                        else {edges[label]}
+                    ):
                         self.sparse[label][self.mapping[u], self.mapping[v]] = True
 
         self.start_states = dfa.start_states
@@ -30,7 +39,7 @@ class FiniteAutomaton:
 
     def mapping_for(self, u):
         return self.mapping[State(u)]
-    
+
     def to_ndfa(self):
         ndfa = NDFA()
         for label in self.sparse.keys():
@@ -38,7 +47,9 @@ class FiniteAutomaton:
             for u in range(m_size):
                 for v in range(m_size):
                     if self.sparse[label][u, v]:
-                        ndfa.add_transition(self.mapping_for(u), label, self.mapping_for(v))
+                        ndfa.add_transition(
+                            self.mapping_for(u), label, self.mapping_for(v)
+                        )
 
         for s in self.start_states:
             ndfa.add_start_state(self.mapping_for(s))

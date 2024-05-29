@@ -128,9 +128,7 @@ def intersect_automata(
 
     labels = auto1.labels() & auto2.labels()
     for label in labels:
-        res.matrices[label] = kron(
-            auto1.matrices[label], auto2.matrices[label], "csr"
-        )
+        res.matrices[label] = kron(auto1.matrices[label], auto2.matrices[label], "csr")
 
     return res
 

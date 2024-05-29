@@ -1,84 +1,156 @@
-from scipy.sparse import dok_matrix, kron
 from pyformlang.finite_automaton import (
     DeterministicFiniteAutomaton as DFA,
-    NondeterministicFiniteAutomaton as NDFA,
+    NondeterministicFiniteAutomaton as NFA,
     State,
+    Symbol,
 )
+from networkx import MultiDiGraph
+from scipy.sparse import dok_matrix, kron
+from typing import Iterable
+from functools import reduce
+
+from project.task2 import regex_to_dfa, graph_to_nfa
 
 
 class FiniteAutomaton:
-    def __init__(self, dfa=None):
-        if not isinstance(dfa, DFA) and not isinstance(dfa, NDFA):
+    def __init__(self, fa=None) -> None:
+        self.lbl = True
+        self.matrices = {}
+        if fa is None:
+            self.start_states = set()
+            self.final_states = set()
+            self.state_to_index = {}
             return
 
-        states = dfa.to_dict()
-        self.mapping = {v: i for i, v in enumerate(dfa.states)}
-        self.sparse = dict()
+        self.start_states = fa.start_states
+        self.final_states = fa.final_states
 
-        for label in dfa.symbols:
-            self.sparse[label] = dok_matrix(
-                (len(dfa.states), len(dfa.states)), dtype=bool
-            )
-            for u, edges in states.items():
-                if label in edges:
-                    for v in (
-                        edges[label]
-                        if isinstance(edges[label], set)
-                        else {edges[label]}
-                    ):
-                        self.sparse[label][self.mapping[u], self.mapping[v]] = True
+        self.state_to_index = {state: index for index, state in enumerate(fa.states)}
+        self.index_to_state = {
+            index: state for state, index in self.state_to_index.items()
+        }
+        n_states = len(fa.states)
 
-        self.start_states = dfa.start_states
-        self.final_states = dfa.final_states
+        for from_state, transitions in fa.to_dict().items():
+            for symbol, to_states in transitions.items():
+                if symbol not in self.matrices.keys():
+                    self.matrices[symbol] = dok_matrix((n_states, n_states), dtype=bool)
+                if isinstance(fa, DFA):
+                    self.matrices[symbol][
+                        self.state_to_index[from_state], self.state_to_index[to_states]
+                    ] = True
+                else:
+                    for to_state in to_states:
+                        self.matrices[symbol][
+                            self.state_to_index[from_state],
+                            self.state_to_index[to_state],
+                        ] = True
 
-    def accepts(self, word):
-        return self.to_ndfa().accepts("".join(list(word)))
+    def to_nfa(self) -> NFA:
+        nfa = NFA()
 
-    def is_empty(self):
-        return len(self.sparse) == 0
+        for state in self.start_states:
+            nfa.add_start_state(state)
 
-    def mapping_for(self, u):
-        return self.mapping[State(u)]
+        for state in self.final_states:
+            nfa.add_final_state(state)
 
-    def to_ndfa(self):
-        ndfa = NDFA()
-        for label in self.sparse.keys():
-            m_size = self.sparse[label].shape[0]
-            for u in range(m_size):
-                for v in range(m_size):
-                    if self.sparse[label][u, v]:
-                        ndfa.add_transition(
-                            self.mapping_for(u), label, self.mapping_for(v)
-                        )
+        for label, matrix in self.matrices.items():
+            n, m = matrix.shape
+            for from_state in range(n):
+                for to_state in range(m):
+                    if matrix[from_state, to_state]:
+                        nfa.add_transition(State(from_state), label, State(to_state))
 
-        for s in self.start_states:
-            ndfa.add_start_state(self.mapping_for(s))
-        for s in self.final_states:
-            ndfa.add_final_state(self.mapping_for(s))
-        return ndfa
+        return nfa
+
+    def set_state_to_index(self, new_state_to_index):
+        self.state_to_index = new_state_to_index
+        self.index_to_state = {
+            index: state for state, index in self.state_to_index.items()
+        }
+
+    def set_true(self, label, row, column):
+        self.matrices[label][row, column] = True
+
+    def add_label_if_not_exist(self, label, dim=None):
+        if label not in self.matrices:
+            dim = dim or len(self)
+            self.matrices[label] = dok_matrix((dim, dim), dtype=bool)
+
+    def accepts(self, word: Iterable[Symbol]) -> bool:
+        return self.to_nfa().accepts(word)
+
+    def is_empty(self) -> bool:
+        return self.to_nfa().is_empty()
+
+    def get_index(self, state) -> int:
+        return self.state_to_index.get(state, 0)
+
+    def get_state_by_index(self, index: int):
+        return self.index_to_state[index]
+
+    def __len__(self):
+        return len(self.state_to_index)
+
+    def labels(self):
+        return self.state_to_index.keys() if self.lbl else self.matrices.keys()
+
+    def get_transitive_closure(self):
+        if len(self.matrices.values()) == 0:
+            return dok_matrix((0, 0), dtype=bool)
+
+        closure = reduce(lambda x, y: x + y, self.matrices.values())
+
+        while True:
+            prev_zero_count = closure.count_nonzero()
+            closure += closure @ closure
+            if prev_zero_count == closure.count_nonzero():
+                return closure
 
 
-def intersect_automata(fa1: FiniteAutomaton, fa2: FiniteAutomaton):
-    labels = fa1.sparse.keys() & fa2.sparse.keys()
-    fa = FiniteAutomaton()
-    fa.sparse = dict()
-    fa.start_states = set()
-    fa.final_states = set()
-    fa.mapping = dict()
+def intersect_automata(
+    auto1: FiniteAutomaton, auto2: FiniteAutomaton, lbl: bool = True
+) -> FiniteAutomaton:
+    auto1.lbl = auto2.lbl = not lbl
+    res = FiniteAutomaton()
 
+    for state1, index1 in auto1.state_to_index.items():
+        for state2, index2 in auto2.state_to_index.items():
+            index = len(auto2) * index1 + index2
+            res.state_to_index[index] = index
+
+            if state1 in auto1.start_states and state2 in auto2.start_states:
+                res.start_states.add(State(index))
+
+            if state1 in auto1.final_states and state2 in auto2.final_states:
+                res.final_states.add(State(index))
+
+    labels = auto1.labels() & auto2.labels()
     for label in labels:
-        fa.sparse[label] = kron(fa1.sparse[label], fa2.sparse[label], "csr")
+        res.matrices[label] = kron(
+            auto1.matrices[label], auto2.matrices[label], "csr"
+        )
 
-    for u, i in fa1.mapping.items():
-        for v, j in fa2.mapping.items():
+    return res
 
-            k = len(fa2.mapping) * i + j
-            fa.mapping[k] = k
 
-            if u in fa1.start_states and v in fa2.start_states:
-                fa.start_states.add(State(k))
+def paths_ends(
+    graph: MultiDiGraph, start: set[int], final: set[int], regex: str
+) -> list[tuple[object, object]]:
+    dfa = FiniteAutomaton(regex_to_dfa(regex))
+    nfa = FiniteAutomaton(graph_to_nfa(graph, start, final))
+    intersection = intersect_automata(nfa, dfa, lbl=False)
 
-            if u in fa1.final_states and v in fa2.final_states:
-                fa.final_states.add(State(k))
+    if intersection.is_empty():
+        return []
 
-    return fa
+    from_states, to_states = intersection.get_transitive_closure().nonzero()
+    n = len(dfa)
+
+    return [
+        (nfa.get_state_by_index(from_state // n), nfa.get_state_by_index(to_state // n))
+        for from_state, to_state in zip(from_states, to_states)
+        if from_state in intersection.start_states
+        and to_state in intersection.final_states
+    ]

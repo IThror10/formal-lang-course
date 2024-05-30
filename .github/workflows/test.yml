@@ -18,7 +18,7 @@ jobs:
         python -m pip install --upgrade pip
         python -m pip install -r ./requirements.txt
     - name: Generate parser
-      run: antlr4 -Dlanguage=Python3 project/langRules.conf -visitor -o project/lang
+      run: antlr4 -Dlanguage=Python3 project/language.g4 -visitor -o project/lang
     - name: Test with pytest
       run: |
         python ./scripts/run_tests.py

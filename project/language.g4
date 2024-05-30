@@ -1,4 +1,4 @@
-grammar langRules;
+grammar language;
 
 prog: stmt*;
 
